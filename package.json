@@ -1,0 +1,19 @@
+{
+  "name": "local-lobby",
+  "version": "0.1.0",
+  "description": "StormHacks26 | A zero-internet, local offline game launcher server for mobile devices.",
+  "main": "server/server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server/server.js",
+    "dev": "node --watch server/server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "lowdb": "^7.0.1",
+    "socket.io": "^4.7.5"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

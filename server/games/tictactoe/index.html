@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Tic-Tac-Toe — local-lobby</title>
+  <link rel="stylesheet" href="/tailwind.css" />
+</head>
+<body class="flex flex-col items-center">
+  <div class="container p-4">
+
+    <!-- header -->
+    <header class="flex items-center justify-between mb-6">
+      <div>
+        <h1 class="text-2xl font-bold text-white">⚔️ Tic-Tac-Toe</h1>
+        <p class="text-xs text-gray-400" id="roomLabel">attaching…</p>
+      </div>
+      <a href="/" class="text-sm text-cyan-400 font-semibold">← launcher</a>
+    </header>
+
+    <!-- status -->
+    <div id="status" class="text-lg font-bold text-center mb-4 text-gray-100">waiting for the board…</div>
+
+    <!-- board -->
+    <div id="board" class="grid grid-cols-3 gap-2 mb-6">
+      <button class="cell bg-gray-800 rounded-lg p-4 text-3xl font-bold text-white transition hover:bg-gray-600 active:scale-95">·</button>
+      <button class="cell bg-gray-800 rounded-lg p-4 text-3xl font-bold text-white transition hover:bg-gray-600 active:scale-95">·</button>
+      <button class="cell bg-gray-800 rounded-lg p-4 text-3xl font-bold text-white transition hover:bg-gray-600 active:scale-95">·</button>
+      <button class="cell bg-gray-800 rounded-lg p-4 text-3xl font-bold text-white transition hover:bg-gray-600 active:scale-95">·</button>
+      <button class="cell bg-gray-800 rounded-lg p-4 text-3xl font-bold text-white transition hover:bg-gray-600 active:scale-95">·</button>
+      <button class="cell bg-gray-800 rounded-lg p-4 text-3xl font-bold text-white transition hover:bg-gray-600 active:scale-95">·</button>
+      <button class="cell bg-gray-800 rounded-lg p-4 text-3xl font-bold text-white transition hover:bg-gray-600 active:scale-95">·</button>
+      <button class="cell bg-gray-800 rounded-lg p-4 text-3xl font-bold text-white transition hover:bg-gray-600 active:scale-95">·</button>
+      <button class="cell bg-gray-800 rounded-lg p-4 text-3xl font-bold text-white transition hover:bg-gray-600 active:scale-95">·</button>
+    </div>
+
+    <!-- roster + controls -->
+    <div class="flex items-center justify-center gap-3 mb-4">
+      <span id="roster" class="text-xs text-gray-400 bg-gray-800 border border-gray-700 rounded-full px-4 py-1"></span>
+      <button id="startBtn"
+        class="hidden text-sm font-bold text-white bg-emerald-500 rounded-lg px-4 py-2 transition">
+        Start game
+      </button>
+      <button id="rematch"
+        class="hidden text-sm font-bold text-white bg-emerald-500 rounded-lg px-4 py-2 transition">
+        New round
+      </button>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/arcade-sdk.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    const cells = [...document.querySelectorAll('.cell')];
+    const statusEl = document.getElementById('status');
+    const roomLabel = document.getElementById('roomLabel');
+    const rosterEl = document.getElementById('roster');
+    const startBtn = document.getElementById('startBtn');
+    const rematchBtn = document.getElementById('rematch');
+
+    const params = new URLSearchParams(window.location.search);
+    const me = params.get('player') || 'player';
+    const EMPTY_BOARD = [0,0,0,0,0,0,0,0,0];
+
+    let roster = [];
+    let state = { board: [...EMPTY_BOARD], turn: 0, winner: null };
+    let roomStarted = false;
+    let isHost = false;
+
+    const WIN_LINES = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+
+    function winnerOf(board) {
+      for (const [a, b, c] of WIN_LINES) {
+        if (board[a] && board[a] === board[b] && board[a] === board[c]) return board[a];
+      }
+      return null;
+    }
+
+    function myTurn() {
+      if (!state || state.winner !== null || roster.length === 0) return false;
+      const meIndex = roster.findIndex((p) => p.name === me);
+      if (meIndex === -1) return false;
+      return state.turn % roster.length === meIndex;
+    }
+
+    function syncStartControls() {
+      const hasTwoPlayers = roster.length >= 2;
+      const canStart = roomStarted === false && isHost && hasTwoPlayers;
+
+      startBtn.classList.toggle('hidden', !canStart && !(!roomStarted && isHost && !hasTwoPlayers));
+      startBtn.disabled = !canStart;
+      startBtn.classList.toggle('opacity-60', !canStart);
+      startBtn.classList.toggle('cursor-not-allowed', !canStart);
+
+      if (roomStarted) {
+        startBtn.classList.add('hidden');
+        rematchBtn.classList.add('hidden');
+      }
+    }
+
+    function render() {
+      if (!state) return;
+      const board = Array.isArray(state.board) ? state.board : [0,0,0,0,0,0,0,0,0];
+      cells.forEach((c, i) => {
+        c.textContent = board[i] === 1 ? 'X' : board[i] === 2 ? 'O' : '·';
+        c.className = 'cell bg-gray-800 rounded-lg p-4 text-3xl font-bold text-white transition hover:bg-gray-600 active:scale-95 '
+          + (board[i] ? 'text-pink-400' : '');
+      });
+
+      const winner = state.winner !== null ? state.winner : winnerOf(board);
+      const full = board.every((v) => v !== 0);
+
+      if (!roomStarted) {
+        if (isHost && roster.length < 2) {
+          statusEl.textContent = 'Waiting for another player to join…';
+          startBtn.textContent = 'Start game';
+        } else if (isHost && roster.length >= 2) {
+          statusEl.textContent = 'Ready to start…';
+          startBtn.textContent = 'Start game';
+        } else {
+          statusEl.textContent = 'Waiting for host to start the match…';
+        }
+        rematchBtn.classList.add('hidden');
+      } else if (winner) {
+        statusEl.textContent = `🏆 ${winner === 1 ? 'X' : 'O'} wins!`;
+        rematchBtn.classList.remove('hidden');
+      } else if (full) {
+        statusEl.textContent = '🤝 Draw!';
+        rematchBtn.classList.remove('hidden');
+      } else {
+        rematchBtn.classList.add('hidden');
+        statusEl.textContent = myTurn() ? 'Your move' : 'Waiting for opponent…';
+      }
+
+      rosterEl.textContent = roster.map((p) => p.name).join(' vs ') || 'solo';
+      syncStartControls();
+    }
+    function doMove(i) {
+      if (!roomStarted || !state || state.winner !== null || !myTurn() || state.board[i] !== 0) return;
+      const board = [...state.board];
+      const myIdx = roster.findIndex((p) => p.name === me);
+      board[i] = (myIdx % 2 === 0 ? 1 : 2);
+      Arcade.makeMove({ board, turn: state.turn + 1, winner: winnerOf(board) },
+        { player: me, cell: i }).then((res) => {
+          if (!res.ok) statusEl.textContent = 'move rejected: ' + res.error;
+          else render();
+        });
+    }
+
+    cells.forEach((c, i) => c.addEventListener('click', () => doMove(i)));
+
+    rematchBtn.addEventListener('click', () => {
+      Arcade.makeMove({ board: [0,0,0,0,0,0,0,0,0], turn: 0, winner: null },
+        { player: me, rematch: true });
+    });
+
+    startBtn.addEventListener('click', () => {
+      if (!isHost) return;
+      Arcade.startGame().then((res) => {
+        if (!res || !res.ok) {
+          statusEl.textContent = 'Unable to start match: ' + (res && res.error ? res.error : 'unknown');
+        }
+      });
+    });
+
+    // ---- Arcade SDK wiring ------------------------------------------------
+    Arcade.init({
+      gameId: 'tictactoe',
+      playerName: me,
+      onJoined: (snap) => {
+        roomLabel.textContent = snap ? snap.code + ' · ' + snap.gameId : 'unattached';
+        roomStarted = !!(snap && snap.started);
+        if (snap && snap.state) { state = snap.state; }
+        if (snap && Array.isArray(snap.players) && snap.players.length) {
+          const hostPlayer = snap.players[0];
+          isHost = (hostPlayer && hostPlayer.name === me) || (snap.hostName === me);
+        }
+        render();
+      },
+      onState: (s) => { state = s; render(); },
+      onPlayers: (players, started) => {
+        roster = players;
+        roomStarted = !!started;
+        isHost = !!roster.length && roster[0] && roster[0].name === me;
+        if (state) render();
+      },
+      onStarted: (started, snapshot) => {
+        roomStarted = !!started;
+        if (snapshot && snapshot.state) state = snapshot.state;
+        render();
+      },
+      onDisconnected: () => {
+        roomLabel.textContent = 'server connection lost';
+        statusEl.textContent = 'reconnecting…';
+      },
+    });
+  })();
+  </script>
+</body>
+</html>
+

@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>local-lobby</title>
+  <link rel="stylesheet" href="/tailwind.css" />
+</head>
+<body>
+  <div class="container p-4">
+
+    <!-- header -->
+    <header class="flex items-center justify-between mb-6">
+      <div>
+        <h1 class="text-3xl font-bold text-white tracking-wide">
+          <span class="text-pink-400">local</span>-lobby
+        </h1>
+        <p class="text-xs text-gray-400 uppercase tracking-wide">offline arcade &middot; zero internet</p>
+      </div>
+      <span id="serverBadge" class="text-xs text-gray-400 bg-gray-800 border border-gray-700 rounded-full px-4 py-1">
+        connecting&hellip;
+      </span>
+    </header>
+
+    <!-- host a room -->
+    <section class="bg-gray-800 rounded-xl p-4 mb-6 shadow-lg">
+      <h2 class="text-lg font-semibold text-white mb-3">🎮 Host a room</h2>
+      <div class="space-y-3">
+        <select id="hostGame" class="text-base p-3 rounded-lg bg-gray-900 text-gray-100"></select>
+        <input id="hostName" class="text-base p-3 rounded-lg" maxlength="16" placeholder="Your player name" required />
+        <button id="hostBtn"
+          class="w-full text-base font-bold text-white bg-pink-500 hover:bg-pink-600 rounded-lg py-3 active:scale-95 transition disabled:opacity-50">
+          Host Room
+        </button>
+      </div>
+    </section>
+
+    <!-- join by code -->
+    <section class="bg-gray-800 rounded-xl p-4 mb-6 shadow-lg">
+      <h2 class="text-lg font-semibold text-white mb-3">🔑 Join by room code</h2>
+      <div class="flex gap-2">
+        <input id="joinCode" class="text-base p-3 rounded-lg flex-1 uppercase"
+               placeholder="ROOM-101" maxlength="12" autocomplete="off" />
+        <button id="joinBtn"
+          class="text-base font-bold text-white bg-cyan-500 hover:bg-cyan-600 rounded-lg px-6 active:scale-95 transition">
+          Join
+        </button>
+      </div>
+      <div id="openRooms" class="mt-4 space-y-2"></div>
+    </section>
+
+    <!-- game library -->
+    <section>
+      <h2 class="text-lg font-semibold text-white mb-3">🕹️ Game library</h2>
+      <div id="gameGrid" class="grid grid-cols-2 gap-3">
+        <div class="text-sm text-gray-500 p-3">Loading games&hellip;</div>
+      </div>
+    </section>
+
+    <!-- toast -->
+    <div id="toast" class="hidden rounded-lg p-4 text-sm font-semibold shadow-lg"></div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    const $ = (id) => document.getElementById(id);
+    const socket = io();
+
+    let games = [];
+
+    function toast(msg, ok) {
+      const t = $('toast');
+      t.textContent = msg;
+      t.className = 'fixed rounded-lg p-4 text-sm font-semibold shadow-lg ' +
+        (ok ? 'bg-emerald-500 text-white' : 'bg-gray-600 text-white');
+      t.style.bottom = '1rem';
+      t.style.left = '50%';
+      t.style.transform = 'translateX(-50%)';
+      setTimeout(() => t.classList.add('hidden'), 2600);
+    }
+
+    // ---- online badge ----------------------------------------------------
+    socket.on('connect', () => { $('serverBadge').textContent = 'online'; });
+    socket.on('disconnect', () => { $('serverBadge').textContent = 'offline'; });
+
+    // ---- load game registry + live rooms ---------------------------------
+    fetch('/api/games').then((r) => r.json()).then((list) => {
+      games = list;
+      const sel = $('hostGame');
+      sel.innerHTML = '';
+      games.forEach((g) => {
+        const o = document.createElement('option');
+        o.value = g.id;
+        o.textContent = `${g.emoji || ''} ${g.title} (${g.players} players)`;
+        sel.appendChild(o);
+      });
+      const grid = $('gameGrid');
+      grid.innerHTML = '';
+      games.forEach((g) => {
+        const card = document.createElement('div');
+        card.className = 'bg-gray-800 border border-gray-700 rounded-xl p-3 shadow transition';
+        card.innerHTML =
+          `<div class="text-2xl mb-1">${g.emoji || '🎮'}</div>` +
+          `<div class="font-bold text-white truncate">${g.title}</div>` +
+          `<div class="text-xs text-gray-400">${g.players} players</div>`;
+        card.addEventListener('click', () => {
+          $('hostGame').value = g.id;
+          toast('Pick a name, then tap "Host Room"');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+        grid.appendChild(card);
+      });
+    }).catch(() => { $('gameGrid').innerHTML = '<div class="text-sm text-gray-500">No manifest found.</div>'; });
+
+    function refreshRooms() {
+      fetch('/api/rooms').then((r) => r.json()).then(({ rooms }) => {
+        const el = $('openRooms');
+        const open = rooms.filter((r) => r.status === 'open' && r.playerCount >= 1);
+        el.innerHTML = open.length
+          ? '<div class="text-xs text-gray-400 uppercase mb-1">open rooms</div>' +
+            open.map((r) => {
+              const names = (r.playerNames || []).slice(0, 3).join(', ') || 'No names yet';
+              return `<div class="flex items-center justify-between bg-gray-700 rounded-lg p-3">
+                 <div>
+                   <div class="font-semibold text-white">${r.code}</div>
+                   <div class="text-xs text-gray-300">${r.hostName} &middot; ${r.playerCount} player(s)</div>
+                   <div class="text-[10px] text-gray-400 mt-1">${names}</div>
+                 </div>
+                 <button data-code="${r.code}"
+                   class="joinOpen text-sm font-bold text-white bg-cyan-500 hover:bg-cyan-600 rounded-lg px-4 py-2 transition">Join</button>
+               </div>`;
+            }).join('')
+          : '<div class="text-xs text-gray-500">No open rooms yet — host one!</div>';
+        el.querySelectorAll('.joinOpen').forEach((b) =>
+          b.addEventListener('click', () => joinRoom(b.dataset.code)));
+      }).catch(() => {});
+    }
+    refreshRooms();
+    setInterval(refreshRooms, 4000);
+    // ---- host -------------------------------------------------------------
+    function requireName(label) {
+      const value = $('hostName').value.trim();
+      if (!value) {
+        toast(`${label} needs a player name`, false);
+        $('hostName').focus();
+        return null;
+      }
+      return value;
+    }
+
+    $('hostBtn').addEventListener('click', () => {
+      const hostName = requireName('Host');
+      if (!hostName) return;
+      const gameId = $('hostGame').value;
+      const game = games.find((g) => g.id === gameId);
+      socket.emit('room:create', { gameId, hostName, initialState: game && game.initialState }, (res) => {
+        if (!res || !res.ok) return toast('Could not host room', false);
+        openGame(gameId, res.roomCode, hostName);
+      });
+    });
+
+    // ---- join -------------------------------------------------------------
+    $('joinBtn').addEventListener('click', () => joinRoom($('joinCode').value));
+    $('joinCode').addEventListener('keydown', (e) => { if (e.key === 'Enter') joinRoom($('joinCode').value); });
+
+    function joinRoom(code) {
+      code = (code || '').trim().toUpperCase();
+      if (!code) return toast('Enter a room code');
+      const playerName = requireName('Join');
+      if (!playerName) return;
+
+      fetch('/api/rooms').then((r) => r.json()).then(({ rooms }) => {
+        const room = rooms.find((entry) => entry.code === code);
+        if (!room) return toast('Room not found', false);
+        if (room.status === 'closed') return toast('Room is closed', false);
+        if (room.gameId === 'tictactoe' && room.playerCount >= 2) return toast('Room is full', false);
+        openGame(room.gameId, code, playerName);
+      }).catch(() => {
+        toast('Join failed', false);
+      });
+    }
+
+    // ---- launch a game with the room bound in the URL ----------------------
+    function openGame(gameId, roomCode, playerName) {
+      const name = encodeURIComponent(playerName || $('hostName').value.trim() || 'player');
+      const url = `/games/${gameId}/index.html?room=${encodeURIComponent(roomCode)}${name ? '&player=' + name : ''}`;
+      window.location.href = url;
+    }
+  })();
+  </script>
+</body>
+</html>
+

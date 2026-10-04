@@ -1,0 +1,14 @@
+{
+  "name": "local-lobby games",
+  "games": [
+    {
+      "id": "tictactoe",
+      "title": "Tic-Tac-Toe",
+      "emoji": "⚔️",
+      "players": "2",
+      "entry": "tictactoe/index.html",
+      "description": "Classic 3x3. Win a row, column or diagonal.",
+      "initialState": { "board": [0, 0, 0, 0, 0, 0, 0, 0, 0], "turn": 0, "winner": null }
+    }
+  ]
+}
