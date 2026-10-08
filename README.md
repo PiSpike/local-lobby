@@ -1,5 +1,5 @@
 # local-lobby
-##(Unfinished StormHacks26)
+## (Unfinished StormHacks26)
 
 StormHacks26 | A zero-internet, local offline game launcher server for mobile devices.
 
